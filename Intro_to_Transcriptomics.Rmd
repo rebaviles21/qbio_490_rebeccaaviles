@@ -1,0 +1,140 @@
+---
+title: "Intro to Transcriptomics"
+author: Nicole Black, Wade Boohar, Kayla Xu
+date: 07/17/22
+updated: 09/26/23
+---
+
+***Deliverables***
+-Upload this R Notebook to your GitHub and submit the link to your Repo on BB.
+-Include any graphs or figures created in this assignment in the folder with your R notebook with descriptive file names.
+
+Since this is an optional partner activity, it is okay if your answers are the same as your partner’s as long as everyone understands it and could explain it in their own words if asked. Each person must individually push their code to Github. *At the top of your R Notebook, write the name of you and your partner(s) as a comment.*
+
+***Complete the following coding activity and answer any following questions as comments in your R Notebook***
+
+In Transcriptomics_Tutorial.Rmd, you learned how to manipulate the SummarizedExperiment data structure, turn it into more readable dataframes, complete basic analysis using those dataframes, and performed a differential expression analysis based on age. Before saving the rna_counts, rna_clinical, and rna_genes however, we masked out any sample that was not a tumor. In this assignment, you will need to reinstantiate the rna_se object and then perform differential expression analysis based on tumor status.
+
+*Pre-Assignment*
+Use knitr function to set your working directory to your analysis_data folder in qbio_490_name.
+```{r}
+knitr::opts_knit$set(root.dir = normalizePath("/Users/rebaviles21/Desktop/QBIO_490_rebecca/analysis_data")) 
+```
+
+Load all necessary packages and instantiate the rna_se object
+```{r}
+
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+
+rna_query <- GDCquery(project ="TCGA-BRCA",
+                      data.category = "Transcriptome Profiling",
+                      data.type = "Gene Expression Quantification",
+                      workflow.type = "STAR - Counts")
+
+rna_se <- GDCprepare(rna_query)
+
+```
+
+
+*1*
+Perform all data cleaning and label manipulation steps (hint: applying colnames and rownames to make the dataframes more readable) except for masking out the patient with an NA for age and the "Solid Tissue Normal" sample types.
+```{r}
+#must introduce variables 
+rna_clinical <- rna_se@colData
+
+#data frame must be established 
+
+rna_clinical <- as.data.frame(rna_clinical)
+
+rna_genes <- rna_se@rowRanges@elementMetadata
+
+rownames(rna_genes) <- colData(rna_se)$gene_id
+rna_genes <- as.data.frame(rna_genes)
+rownames(rna_genes) <- rna_genes$gene_id
+
+```
+
+
+*2*
+Determine and define your experimental design for the differential expression analysis. Control for covariance of age, gender, OR vital_status. Manipulate those columns so that they are ready for differential expression analysis (hint: what kind of variables are they? what data type are they by default? do you need to handle unknown values?)
+```{r}
+#categorical data must be transferred into variables and factors 
+rna_clinical$vital_status <- as.factor(rna_clinical$vital_status)
+rna_clinical$gender <- as.factor(rna_clinical$gender)
+
+#convert age into numeric and comprehensible data 
+#gender mask to control for covariances
+
+age_na_mask <- !is.na(rna_clinical$age_at_diagnosis)
+
+rna_clinical <- rna_clinical[age_na_mask, ]
+
+rna_counts <- rna_counts[age_na_mask, ]
+
+#triple check if values of correspnding na values are there
+
+sum(is.na(rna_clinical$gender))
+#1 NA is shown
+
+gender_na_mask <- !is.na(rna_clinical$gender)
+
+rna_clinical <- rna_clinical[gender_na_mask, ]
+
+rna_counts <- rna_counts[gender_na_mask, ]
+
+#design matrix 
+
+matrix_design <- model.matrix(~age_at_diagnosis + gender + vital_status, data = rna_clinical)
+
+```
+
+
+*3*
+Perform the differential expression analysis, create a volcano plot, and interpret what genes from each of the 6 sections means (assuming thresholds of -log10padj = 2 and log2FoldChange = 1)
+```{r}
+#Load packages 
+#BiocManager::install("DESeq2")
+
+library(DESeq2)
+library(ggplot2)
+
+#count extraction 
+counts <- assay(rna_se)
+sample_barcode <- rna_clinical$barcode
+
+counts_subset <- counts[ , sample_barcode]
+
+dds <- DESeqDataSetFromMatrix(countData = counts_subset, colData = rna_clinical, design = ~age_at_diagnosis + gender + vital_status)
+
+#differential expression analysis 
+dds_obj <- DESeq(dds)
+#report results
+results <- results(dds_obj, contrast = c("gender", "male", "female") ) 
+
+results_1.df <- as.data.frame(results)
+
+#volcano plot!!!
+
+volcano_plot <- ggplot(results_1.df, aes(x= log2FoldChange, y = -log10(pvalue))) + geom_point(aes(color= ifelse(results_1.df$padj < 0.01, "red", "black"))) + geom_hline(yintercept = 2, linetype = "dashed", color = "blue") +labs(title = "Differential Analysis Based on RNA Clinical BRCA Data",
+              x = "Log2 Fold Change",
+              y = "-Log10 Adjusted P Value") +
+  theme_minimal()
+
+
+
+#save in qbio folder
+
+ggsave("/Users/rebaviles21/Desktop/QBIO_490_rebecca/analysis_data/volcano.plot.png", plot= volcano_plot)
+
+print(volcano_plot)
+```
+
+top-right genes: 
+bottom-right genes: 
+top-left genes: 
+bottom-left genes: 
+top-middle genes:
+bottom-middle genes:
+
+Save the picture of the volcano plot (using either ggsave() or right clicking and manually downloading the image and push this .Rmd and the image to GitHub)
